@@ -38,11 +38,10 @@ class Media_Directory_Arrange {
 
 	private $setting;
 
-
 	/**
 	 * コンストラクタ
 	 */
-	private function __construct() {
+	public function __construct() {
 
 		// Allow people to change what capability is required to use this plugin
 		$this->capability = apply_filters('media_directory_arrange_cap', 'manage_options');
@@ -61,8 +60,6 @@ class Media_Directory_Arrange {
 
 		add_filter( 'handle_bulk_actions-upload', array( $this, 'mda_bulk_action_handler'), 10, 3 );
 
-		//! current_user_can( 'manage_options' )
-
 		// セッティング
 		$this->setting = Setting::get_instance();
 	}
@@ -78,12 +75,12 @@ class Media_Directory_Arrange {
 	 * @access public
 	 * @since 1.0
 	 */
-	function admin_enqueues( $hook_suffix ){
+	public function admin_enqueues( $hook_suffix ){
 		if( $hook_suffix != $this->menu_id ){
 			return;
 		}
-		wp_enqueue_script('jquery-ui-progressbar', plugins_url('asset/js/jquery-ui/jquery.ui.progressbar.min.1.7.2.js', __FILE__), array('jquery-ui-core'), '1.7.2');
-		wp_enqueue_style('jquery-ui-regenthumbs', plugins_url('asset/js/jquery-ui/redmond/jquery-ui-1.7.2.custom.css', __FILE__), array(), '1.7.2');
+		wp_enqueue_script('jquery-ui-progressbar', MDA_URL . 'asset/js/jquery-ui/jquery.ui.progressbar.min.1.7.2.js', array('jquery-ui-core'), '1.7.2' );
+		wp_enqueue_style('jquery-ui-regenthumbs', MDA_URL . 'asset/js/jquery-ui/redmond/jquery-ui-1.7.2.custom.css', array(), '1.7.2' );
 		//wp_enqueue_style('plugin-custom-style', plugins_url('style.css', __FILE__), array(), '2.0.1');
 		if ( 'upload.php' === $hook_suffix ) {
 		}
@@ -102,7 +99,7 @@ class Media_Directory_Arrange {
 	 * メディア一覧 バルク コールバック
 	 * @access public
 	 */
-	function mda_bulk_action_handler( $redirect_to, $doaction, $id_list ) {
+	public function mda_bulk_action_handler( $redirect_to, $doaction, $id_list ) {
 		if ( $doaction !== 'media_directory_arrange' ) {
 			return $redirect_to;
 		}
@@ -123,7 +120,7 @@ class Media_Directory_Arrange {
 	 * @access public
 	 * @since 1.0
 	 */
-	function add_admin_menu() {
+	public function add_admin_menu() {
 		$this->menu_id = add_management_page(
 			'メディア自動整理',
 			'メディア自動整理',
@@ -133,14 +130,13 @@ class Media_Directory_Arrange {
 		);
 	}
 
-
 	/**
 	 * 独自ページのインタフェース
 	 * 
 	 * @access public
 	 * @since 1.0
 	 */
-	function mda_interface() {
+	public function mda_interface() {
 		global $wpdb;
 		?>
 			<div id="message" class="updated fade" style="display:none"></div>
@@ -165,7 +161,7 @@ class Media_Directory_Arrange {
 	/**
 	 * テンプレート：ノーマル
 	 */
-	function process_template_allmediafile( $ids = '' ){
+	private function process_template_allmediafile( $ids = '' ){
 		$id_list = explode(',', $ids);
 		?>
 			<form method="post" action="">
@@ -173,9 +169,12 @@ class Media_Directory_Arrange {
 				<noscript><p><em>Javascriptを有効化してください。</em></p></noscript>
 				<p>メディアファイルの保存先を一括整理、移動する</p>
 				<h3>移動先テンプレート</h3>
-				<?php
-					$this->setting;
-				?>
+				<code>
+					<?php
+						$option_data = $this->setting->get_option_data();
+						echo $option_data['mda_permalink'];
+					?>
+				</code>
 
 				<h3>選択したファイルのみ</h3>
 				<?php if( ! empty( $ids ) ): ?>
@@ -184,8 +183,14 @@ class Media_Directory_Arrange {
 					</p>
 					<h4>選択したファイル</h4>
 					<ul>
-						<?php foreach( $id_list as $id ): ?>
-							<li>ID：<?php echo $id; ?></li>
+						<?php
+							$arrange = new Arrange();
+							foreach( $id_list as $attachment_id ):
+								$upload_path = $arrange->get_upload_path( $attachment_id );
+						?>
+							<li>
+								ID：<?php echo $attachment_id; ?> =&gt; <code><?php echo $upload_path['path'] . '/'; ?></code></p>
+							</li>
 						<?php endforeach; ?>
 					</ul>
 				<?php endif; ?>
@@ -199,12 +204,10 @@ class Media_Directory_Arrange {
 		<?php
 	}
 
-
-
 	/**
 	 * テンプレート：ファイル移動中
 	 */
-	function process_template_arrangedirectory(){
+	private function process_template_arrangedirectory(){
 		// Capability check
 		if ( ! current_user_can( $this->capability ) ){
 			wp_die( __('Cheatin&#8217; uh?') );
@@ -396,7 +399,7 @@ class Media_Directory_Arrange {
 	 * @access public
 	 * @since 1.0
 	 */
-	function ajax_process() {
+	public function ajax_process() {
 		// No timeout limit
 		set_time_limit(0);
 		// Don't break the JSON result

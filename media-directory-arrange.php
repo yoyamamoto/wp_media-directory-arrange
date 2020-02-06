@@ -31,4 +31,6 @@ define( 'MDA_VERSION', '1.0.0' );
 
 require_once( plugin_dir_path( __FILE__ ) . '/app/main.php' );
 require_once( plugin_dir_path( __FILE__ ) . '/app/setting.php' );
+require_once( plugin_dir_path( __FILE__ ) . '/app/arrange.php' );
+
 Media_Directory_Arrange::get_instance();
