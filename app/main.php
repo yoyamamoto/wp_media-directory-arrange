@@ -145,7 +145,7 @@ class Media_Directory_Arrange {
 				<?php
 					if(
 						! empty( $_POST['media-directory-arrange'] ) ||
-						filter_input( INPUT_GET, 'media-directory-arrange-action' ) === '1' 
+						filter_input( INPUT_GET, 'media-directory-arrange-action' ) === '1'
 					){
 						$this->process_template_arrangedirectory();
 					}else if( ! empty( $_GET['ids'] ) ){
@@ -186,10 +186,9 @@ class Media_Directory_Arrange {
 						<?php
 							$arrange = new Arrange();
 							foreach( $id_list as $attachment_id ):
-								$upload_path = $arrange->get_upload_path( $attachment_id );
 						?>
 							<li>
-								ID：<?php echo $attachment_id; ?> =&gt; <code><?php echo $upload_path['path'] . '/'; ?></code></p>
+								ID：<?php echo $attachment_id; ?> <code><?php echo $arrange->get_current_file_path( $attachment_id ); ?></code> =&gt; <code><?php echo $arrange->get_new_file_path( $attachment_id ); ?></code>
 							</li>
 						<?php endforeach; ?>
 					</ul>
@@ -217,25 +216,14 @@ class Media_Directory_Arrange {
 		check_admin_referer( 'media-directory-arrange' );
 
 		// Create the list of image IDs
-		if ( ! empty( $_REQUEST['ids'] ) ) {
-			$images = array_map( 'intval', explode( ',', trim( $_REQUEST['ids'], ',' ) ) );
-			$ids = implode( ',', $images );
-		} else {
-			// Directly querying the database is normally frowned upon, but all
-			// of the API functions will return the full post objects which will
-			// suck up lots of memory. This is best, just not as future proof.
-			if (!$images = $wpdb->get_results("SELECT ID FROM $wpdb->posts WHERE post_type = 'attachment' AND post_mime_type LIKE 'image/%' ORDER BY ID DESC")) {
-				echo '	<p>' . sprintf(__("Unable to find any images. Are you sure <a href='%s'>some exist</a>?", 'media-directory-arrange'), admin_url('upload.php?post_mime_type=image')) . "</p></div>";
-				return;
-			}
-			// Generate the list of IDs
-			$ids = array();
-			foreach ($images as $image) {
-				$ids[] = $image->ID;
-			}
-			$ids = implode(',', $ids);
+		if ( empty( $_REQUEST['ids'] ) ) {
+			// ファイルが見つかりません
+			return;
 		}
-
+		
+		$images = array_map( 'intval', explode( ',', trim( $_REQUEST['ids'], ',' ) ) );
+		$ids = implode( ',', $images );
+		
 		echo '<p>メディアファイルの保存されているディレクトリ（URL）を移動します。</p>';
 
 		$count = count( $images );
@@ -363,10 +351,11 @@ class Media_Directory_Arrange {
 						nonce: '<?php echo wp_create_nonce( 'media-directory-arrange_js' ); ?>'
 					},
 					success: function( response ) {
+						console.log( response.data.debug );
 						if( response === null ) {
 							response = {};
 							response.success = false;
-							response.data.msg = 'Unknown error occured.';
+							response.data.msg = 'Unknown error occured.（予期せぬエラーが発生しました。）';
 						}
 						MdaUpdateStatus( id, response.success, response.data.msg );
 						if ( mda_images.length && mda_continue ){
@@ -385,7 +374,6 @@ class Media_Directory_Arrange {
 					}
 				});
 			}
-			
 			MdaMoveMediaFile(mda_images.shift());
 		});
 	</script>
@@ -395,9 +383,7 @@ class Media_Directory_Arrange {
 
 	/**
 	 * Process a single image ID (this is an AJAX handler)
-	 * 
 	 * @access public
-	 * @since 1.0
 	 */
 	public function ajax_process() {
 		// No timeout limit
@@ -406,190 +392,115 @@ class Media_Directory_Arrange {
 		error_reporting(0);
 
 		$id = (int) filter_input( INPUT_POST, 'id' );
+
 		try {
-			// NONCEチェック
+			// セキュリティチェック
 			if ( ! wp_verify_nonce( filter_input( INPUT_POST, 'nonce'), 'media-directory-arrange_js' ) ) {
 				throw new Exception( 'Security error.' );
 			}
 
-			// 権限がありません
+			// 権限チェック
 			if ( ! current_user_can( $this->capability ) ) {
 				throw new Exception( 'Your user account does not have permission.' );
 			}
 
-			// メディアファイルが不正です
+			// メディアファイルが不正チェック
 			$image = get_post( $id );
 			if( is_null( $image ) ){
 				throw new Exception(sprintf( 'Failed: %d is an invalid attachment ID.', $id ) );
 			}
 
-			$image_fullpath = get_attached_file( $image->ID );
+			$current_file_path = get_attached_file( $image->ID );
 
 			// メディアファイルではありません
-			if ( false === $image_fullpath || strlen( $image_fullpath ) == 0 ) {
+			if ( false === $current_file_path || strlen( $current_file_path ) == 0 ) {
 				throw new Exception(sprintf( 'Failed: %d is not attachments.', $id ) );
 			}
 
 			// ファイルが見つかりません
-			if ( ! file_exists( $image_fullpath ) || realpath( $image_fullpath ) === false) {
+			if ( ! file_exists( $current_file_path ) || realpath( $current_file_path ) === false) {
 				throw new Exception(
 					sprintf(
 						'The originally uploaded image file cannot be found at &quot;%s&quot;.',
-						esc_html( ( string ) $image_fullpath )
+						esc_html( ( string ) $current_file_path )
 					)
 				);
 			}
 			
-			$debug_1 = $image_fullpath;
-			$debug_2 = '';
-			$debug_3 = '';
-			$debug_4 = '';
+			$arrange = new Arrange();
+			$new_file_path = $arrange->get_new_file_path( $image->ID );
+			$upload_path = $arrange->get_upload_path( $image->ID );
+			// 移動先ディレクトリ
+			$new_dir = $upload_path['path'];
+			// サムネイルが保存されている旧ディレクトリを取得
+			$current_dir = dirname( $current_file_path );
 			
-			// Results
-			$thumb_deleted = array();
-			$thumb_error = array();
-			$thumb_regenerate = array();
-			
-			/**
-			 * サムネの削除用ハック
-			 */
-			$file_info = pathinfo( $image_fullpath );
-			$file_info['filename'] .= '-';
-
-			/**
-			 * サムネの確認
-			 */
-			$files = array();
-			$path = opendir( $file_info['dirname'] );
-			if( false !== $path ) {
-				while( false !== ( $thumb = readdir( $path ) ) ){
-					if( ! ( strrpos( $thumb, $file_info['filename'] ) === false ) ){
-						$files[] = $thumb;
-					}
-				}
-				closedir( $path );
-				sort( $files );
+			if( $current_file_path === $new_file_path ){
+				throw new Exception(sprintf( 'Failed: %d doesn\'t move. Current file path is same new file path.', $id ) );
 			}
-			/*
-			foreach ($files as $thumb) {
-				$thumb_fullpath = $file_info['dirname'] . DIRECTORY_SEPARATOR . $thumb;
-				$thumb_info = pathinfo($thumb_fullpath);
-				$valid_thumb = explode($file_info['filename'], $thumb_info['filename']);
-				if ($valid_thumb[0] == "") {
-					$dimension_thumb = explode('x', $valid_thumb[1]);
-					if (count($dimension_thumb) == 2) {
-						if (is_numeric($dimension_thumb[0]) && is_numeric($dimension_thumb[1])) {
-							unlink($thumb_fullpath);
-							if (!file_exists($thumb_fullpath)) {
-								$thumb_deleted[] = sprintf("%sx%s", $dimension_thumb[0], $dimension_thumb[1]);
-							} else {
-								$thumb_error[] = sprintf("%sx%s", $dimension_thumb[0], $dimension_thumb[1]);
-							}
-						}
-					}
+
+			// ディレクトリを確認・作成
+			if( ! is_dir( $new_dir ) ){
+				if( ! mkdir( $new_dir, 0755, true ) ){
+					throw new Exception(sprintf( 'Failed: %d doesn\'t make new directory.', $id ) );
 				}
+			}
+			
+			// ディレクトリの書き込み確認
+			if( ! is_writable( $new_dir ) ) {
+				throw new Exception(sprintf( 'Failed: %s is not writable.', $new_dir ) );
+			}
+			
+			// サムネイルのファイル名を取得
+			$thumb_files = $this->get_metadata_thumbs_file( $image->ID );
+			$directory_files = $this->get_thumbs_file_list( $current_file_path );
+						
+			// 全てのサムネイルを新しいディレクトリへ移動
+			$debug = array();
+			foreach( $thumb_files as $thumb ){
+				$new_thumb_path = $new_dir . '/' . $thumb;
+				$current_thumb_path = realpath( $current_dir . '/' . $thumb );
+
+				$debug[] = array( $current_thumb_path, $new_thumb_path );
+
+				// 既存ファイルが存在しません
+				if( $current_thumb_path === false ){
+					throw new Exception(sprintf( 'Failed: %d thumbs is not exist.', $id ) );
+				}
+
+				// 移動先にファイルが存在している。
+				if( file_exists( $new_thumb_path ) ){
+					throw new Exception(sprintf( 'Failed: New %d \'s thumbs is exist.', $id ) );
+				}
+
+				// ファイルの移動
+				/*
+				if(
+					! file_exists( $current_thumb_path ) ||
+					rename( $current_thumb_path, $new_thumb_path ) === false
+				){
+					throw new Exception(sprintf( 'Failed: %d dosen\'t rename.', $id ) );
+				}
+				*/
+			}
+			
+			// メタ情報を更新
+			/*
+			if( update_attached_file( $image->ID, $new_path ) === false ){
+				throw new Exception(sprintf( 'Failed: %d. update_attached_file is failed. メタ情報の更新に失敗しました。', $id ) );
 			}
 			*/
 
-			/**
-			 * サムネイルの再生成
-			 */
-			/*
-			$metadata = wp_generate_attachment_metadata($image->ID, $image_fullpath);
-			if (is_wp_error($metadata)) {
-				throw new Exception($metadata->get_error_message());
-      }
-			if (empty($metadata)) {
-				throw new Exception(__('Unknown failure reason.', 'force-regenerate-thumbnails'));
-      }
-			wp_update_attachment_metadata($image->ID, $metadata);
-			*/
+			// 旧ディレクトリが空か確認して削除
 
-			/**
-			 * サムネ再生成の確認 (deleted, errors, success)
-			 */
-			$files = array();
-			$path = opendir($file_info['dirname']);
-			if( false !== $path ) {
-				while( false !== ( $thumb = readdir( $path ) ) ){
-					if( ! ( strrpos( $thumb, $file_info['filename'] ) === false ) ){
-						$files[] = $thumb;
-					}
-				}
-				closedir( $path );
-				sort( $files );
-			}
-			foreach( $files as $thumb ){
-				$thumb_fullpath = $file_info['dirname'] . DIRECTORY_SEPARATOR . $thumb;
-				$thumb_info = pathinfo( $thumb_fullpath );
-				$valid_thumb = explode( $file_info['filename'], $thumb_info['filename'] );
-				if ( $valid_thumb[0] == "" ) {
-					$dimension_thumb = explode( 'x', $valid_thumb[1] );
-					if ( count( $dimension_thumb ) == 2 ) {
-						if ( is_numeric( $dimension_thumb[0] ) && is_numeric( $dimension_thumb[1] ) ) {
-							$thumb_regenerate[] = sprintf( "%sx%s", $dimension_thumb[0], $dimension_thumb[1] );
-						}
-					}
-				}
-			}
-
-
-			// Remove success if has in error list
-			foreach( $thumb_regenerate as $key => $regenerate ){
-				if( in_array( $regenerate, $thumb_error ) ){
-					//unset( $thumb_regenerate[$key] );
-				}
-			}
-
-			// Remove deleted if has in success list
-			foreach( $thumb_deleted as $key => $deleted ){
-				if( in_array( $deleted, $thumb_regenerate ) ){
-					unset( $thumb_deleted[$key] );
-				}
-			}
-
-
-
-
-
-			/**
-			 * Display results
-			 */
-			$upload_dir = wp_upload_dir();
-			$message  = sprintf('<b>&quot;%s&quot; (ID %s)</b>', esc_html( get_the_title( $id ) ), $image->ID);
-			$message .= "<br /><br />";
-			$message .= sprintf("<code>BaseDir: %s</code><br />", $upload_dir['basedir']);
-			$message .= sprintf("<code>BaseUrl: %s</code><br />", $upload_dir['baseurl']);
-			$message .= sprintf("<code>Image: %s</code><br />", $debug_1);
-			if ($debug_2 != '')
-				$message .= sprintf("<code>Image Debug 2: %s</code><br />", $debug_2);
-			if ($debug_3 != '')
-				$message .= sprintf("<code>Image Debug 3: %s</code><br />", $debug_3);
-			if ($debug_4 != '')
-				$message .= sprintf("<code>Image Debug 4: %s</code><br />", $debug_4);
-
-			if (count($thumb_deleted) > 0) {
-				$message .= sprintf('<br />Deleted: %s', implode(', ', $thumb_deleted));	
-			}
-			if (count($thumb_error) > 0) {
-				$message .= sprintf('<br /><b><span style="color: #DD3D36;">Deleted error: %s</span></b>', implode(', ', $thumb_error));
-				$message .= sprintf('<br /><span style="color: #DD3D36;">Please, check the folder permission (chmod 777): %s</span>', $upload_dir['basedir']);
-			}
-			if (count($thumb_regenerate) > 0) {
-				$message .= sprintf('<br />Regenerate: %s</span>', implode(', ', $thumb_regenerate));
-				if (count($thumb_error) <= 0) {
-					$message .=	sprintf('<br />Successfully regenerated in %s seconds', timer_stop());
-				}
-			}
-
-
-
-			$output = array(
-				'msg' => $message
+			$response = array(
+				'msg' => $message,
+				'debug' => $debug
 			);
-
+			
 			header( 'Content-Type: application/json' );
-			wp_send_json_success( $output );
+			wp_send_json_success( $response );
+			
 		}
 		catch (PDOException $e){
 			header('Content-Type: application/json');
@@ -602,8 +513,40 @@ class Media_Directory_Arrange {
 		 *
 		 * @since 2.0.2
 		 */
-		//update_attached_file( $image->ID, $image_fullpath );
+		//update_attached_file( $image->ID, $current_file_path );
 	}
+	
+	public function get_metadata_thumbs_file( $attahiment_id ){
+		$post_meta_data = get_post_meta( $attahiment_id );
+		$unserialize_post_wp_attachment_metadata = maybe_unserialize( $post_meta_data['_wp_attachment_metadata'][0] );
+		$metadata_thumbs = $unserialize_post_wp_attachment_metadata['sizes'];
+		$files = array();
+		foreach( $metadata_thumbs as $metadata ){
+			$files[] = $metadata['file'];
+		}
+		return $files;
+	}
+
+	public function get_thumbs_file_list( $image_fullpath ){
+		/**
+		 * サムネの取得
+		 */
+		$file_info = pathinfo( $image_fullpath );
+		$file_info['filename'] .= '-';
+		$files = array();
+		$path = opendir( $file_info['dirname'] );
+		if( false !== $path ) {
+			while( false !== ( $thumb = readdir( $path ) ) ){
+				if( ! ( strrpos( $thumb, $file_info['filename'] ) === false ) ){
+					$files[] = $thumb;
+				}
+			}
+			closedir( $path );
+			sort( $files );
+		}
+		return $files;
+	}
+
 
 } // end class
 ?>

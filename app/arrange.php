@@ -36,6 +36,16 @@ class Arrange {
 		$this->setting = Setting::get_instance();
 	}
 
+	public function get_current_file_path( $attachiment_id ){
+		return get_attached_file( $attachiment_id );
+	}
+
+	public function get_new_file_path( $attachiment_id ){
+		$path = $this->get_upload_path( $attachiment_id );
+		$filename = basename( get_attached_file( $attachiment_id ) );
+		return $path['path'] . '/' . $filename;
+	}
+
 	/**
 	 * アップロードパスの取得
 	 */
