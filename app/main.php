@@ -188,7 +188,9 @@ class Media_Directory_Arrange {
 							foreach( $id_list as $attachment_id ):
 						?>
 							<li>
-								ID：<?php echo $attachment_id; ?> <code><?php echo $arrange->get_current_file_path( $attachment_id ); ?></code> =&gt; <code><?php echo $arrange->get_new_file_path( $attachment_id ); ?></code>
+								<?php echo $arrange->get_current_file_name( $attachment_id ); ?>
+								(&nbsp;<a href="<?php echo admin_url( 'post.php?post=' . $attachment_id . '&action=edit' );?>" target="_blank">ID:<?php echo $attachment_id; ?></a>&nbsp;)
+								<code><?php echo $arrange->get_current_relative_dir_path( $attachment_id ); ?></code> =&gt; <code><?php echo $arrange->get_new_relative_dir_path( $attachment_id ); ?></code>
 							</li>
 						<?php endforeach; ?>
 					</ul>
@@ -271,9 +273,7 @@ class Media_Directory_Arrange {
 	<ol id="mda-debuglist">
 		<li style="display:none"></li>
 	</ol>
-	<?php
-	  var_dump( $ids );
-	?>
+
 	<script type="text/javascript">
 		jQuery(document).ready(function($){
 			var i;
@@ -290,6 +290,8 @@ class Media_Directory_Arrange {
 			var mda_totaltime = 0;
 			var mda_continue = true;
 
+			console.log(mda_timestart);
+
 			// Create the progress bar
 			$("#mda-bar").progressbar();
 			$("#mda-bar-percent").html("0%");
@@ -303,8 +305,8 @@ class Media_Directory_Arrange {
 			// Clear out the empty list element that's there for HTML validation purposes
 			$("#mda-debuglist li").remove();
 
-			// Called after each resize. Updates debug information and the progress bar.
-			function MdaUpdateStatus(id, success, msg) {
+			// Called after each arrange. Updates debug information and the progress bar.
+			function MdaUpdateStatus(id, success, data) {
 				$("#mda-bar").progressbar("value", (mda_count / mda_total) * 100);
 				$("#mda-bar-percent").html(Math.round((mda_count / mda_total) * 1000) / 10 + "%");
 				mda_count = mda_count + 1;
@@ -312,13 +314,13 @@ class Media_Directory_Arrange {
 				if ( success ) {
 					mda_successes = mda_successes + 1;
 					$("#mda-debug-successcount").html(mda_successes);
-					$("#mda-debuglist").append("<li>" + msg + "</li>");
+					$("#mda-debuglist").append('<li>' + data.file_name +  ' (ID : ' + id + ').&nbsp;&nbsp;&nbsp;<code>' + data.current_dir + '</code> =&gt; <code>' + data.new_dir + "</code></li>");
 				}
 				else {
 					mda_errors = mda_errors + 1;
 					mda_failedlist = mda_failedlist + ',' + id;
 					$("#mda-debug-failurecount").html(mda_errors);
-					$("#mda-debuglist").append("<li>" + msg + "</li>");
+					$("#mda-debuglist").append('<li>' + data.file_name +  ' (ID : ' + id + ').&nbsp;&nbsp;&nbsp;<code>' + data.current_dir + '</code> =&gt; <code>' + data.new_dir + "</code></li>");
 				}
 			}
 
@@ -326,21 +328,28 @@ class Media_Directory_Arrange {
 			function MdaFinishUp() {
 				mda_timeend = new Date().getTime();
 				mda_totaltime = Math.round((mda_timeend - mda_timestart) / 1000);
-
 				$('#mda-stop').hide();
-
 				if (mda_errors > 0) {
 					mda_resulttext = '<?php echo $text_failures; ?>';
 				} else {
 					mda_resulttext = '<?php echo $text_nofailures; ?>';
 				}
-
 				$("#message").html("<p><strong>" + mda_resulttext + "</strong></p>");
 				$("#message").show();
 			}
 
+			function MdaAjaxCallback( id, response ){
+				console.log( response.data.debug );
+				MdaUpdateStatus( id, response.success, response.data );
+				if ( mda_images.length && mda_continue ){
+					MdaMoveMediaFile( mda_images.shift() );
+				} else {
+					MdaFinishUp();
+				}
+			}
+
 			// Regenerate a specified image via AJAX
-			function MdaMoveMediaFile(id) {
+			function MdaMoveMediaFile( id ) {
 				$.ajax({
 					type: 'POST',
 					cache: false,
@@ -351,26 +360,10 @@ class Media_Directory_Arrange {
 						nonce: '<?php echo wp_create_nonce( 'media-directory-arrange_js' ); ?>'
 					},
 					success: function( response ) {
-						console.log( response.data.debug );
-						if( response === null ) {
-							response = {};
-							response.success = false;
-							response.data.msg = 'Unknown error occured.（予期せぬエラーが発生しました。）';
-						}
-						MdaUpdateStatus( id, response.success, response.data.msg );
-						if ( mda_images.length && mda_continue ){
-							MdaMoveMediaFile( mda_images.shift() );
-						} else {
-							MdaFinishUp();
-						}
+						MdaAjaxCallback( id, response );
 					},
 					error: function( response ) {
-						MdaUpdateStatus( id, false, response );
-						if ( mda_images.length && mda_continue ) {
-							MdaMoveMediaFile( mda_images.shift() );
-						} else {
-							MdaFinishUp();
-						}
+						MdaAjaxCallback( id, response );
 					}
 				});
 			}
@@ -388,10 +381,13 @@ class Media_Directory_Arrange {
 	public function ajax_process() {
 		// No timeout limit
 		set_time_limit(0);
+		
 		// Don't break the JSON result
 		error_reporting(0);
 
 		$id = (int) filter_input( INPUT_POST, 'id' );
+
+		$arrange = new Arrange();
 
 		try {
 			// セキュリティチェック
@@ -410,7 +406,7 @@ class Media_Directory_Arrange {
 				throw new Exception(sprintf( 'Failed: %d is an invalid attachment ID.', $id ) );
 			}
 
-			$current_file_path = get_attached_file( $image->ID );
+			$current_file_path = $arrange->get_current_file_path( $image->ID );
 
 			// メディアファイルではありません
 			if ( false === $current_file_path || strlen( $current_file_path ) == 0 ) {
@@ -427,7 +423,9 @@ class Media_Directory_Arrange {
 				);
 			}
 			
-			$arrange = new Arrange();
+			/*
+			 * 既存メディアファイルの移動関連
+			 */
 			$new_file_path = $arrange->get_new_file_path( $image->ID );
 			$upload_path = $arrange->get_upload_path( $image->ID );
 			// 移動先ディレクトリ
@@ -451,39 +449,17 @@ class Media_Directory_Arrange {
 				throw new Exception(sprintf( 'Failed: %s is not writable.', $new_dir ) );
 			}
 			
-			// サムネイルのファイル名を取得
-			$thumb_files = $this->get_metadata_thumbs_file( $image->ID );
-			$directory_files = $this->get_thumbs_file_list( $current_file_path );
-						
-			// 全てのサムネイルを新しいディレクトリへ移動
-			$debug = array();
-			foreach( $thumb_files as $thumb ){
-				$new_thumb_path = $new_dir . '/' . $thumb;
-				$current_thumb_path = realpath( $current_dir . '/' . $thumb );
-
-				$debug[] = array( $current_thumb_path, $new_thumb_path );
-
-				// 既存ファイルが存在しません
-				if( $current_thumb_path === false ){
-					throw new Exception(sprintf( 'Failed: %d thumbs is not exist.', $id ) );
-				}
-
-				// 移動先にファイルが存在している。
-				if( file_exists( $new_thumb_path ) ){
-					throw new Exception(sprintf( 'Failed: New %d \'s thumbs is exist.', $id ) );
-				}
-
-				// ファイルの移動
-				/*
-				if(
-					! file_exists( $current_thumb_path ) ||
-					rename( $current_thumb_path, $new_thumb_path ) === false
-				){
-					throw new Exception(sprintf( 'Failed: %d dosen\'t rename.', $id ) );
-				}
-				*/
+			// 移動先にファイルが存在している。
+			if( file_exists( $new_file_path ) ){
+				throw new Exception(sprintf( 'Failed: %d. Already file exist.', $id ) );
 			}
-			
+
+			// ファイルの移動
+			/*
+			if( rename( $current_file_path, $new_file_path ) === false ){
+				throw new Exception(sprintf( 'Failed: %d dosen\'t rename.', $id ) );
+			}
+
 			// メタ情報を更新
 			/*
 			if( update_attached_file( $image->ID, $new_path ) === false ){
@@ -491,10 +467,49 @@ class Media_Directory_Arrange {
 			}
 			*/
 
-			// 旧ディレクトリが空か確認して削除
+			/*
+			 * サムネイルの移動関連
+			 */
+			// サムネイルのファイル名を取得
+			$thumb_files = $this->get_metadata_thumbs_file( $image->ID );
+			$directory_files = $this->get_thumbs_file_list( $current_file_path );
+						
+			// 全てのサムネイルを新しいディレクトリへ移動
+			foreach( $thumb_files as $thumb ){
+				$new_thumb_path = $new_dir . '/' . $thumb;
+				$current_thumb_path = realpath( $current_dir . '/' . $thumb );
+
+				// 既存ファイルが存在しません
+				if( $current_thumb_path === false ){
+					continue;
+				}
+
+				// ファイルの移動
+				/*
+				if( rename( $current_thumb_path, $new_thumb_path ) === false ){
+					throw new Exception(sprintf( 'Failed: %d dosen\'t rename.', $id ) );
+				}
+				*/
+			}
+			
+			
+			// 旧ディレクトリが空か確認して削除するコードを実装する
+
+			$debug = basename( $current_file_path );
+
+			$file_name = basename( $current_file_path );
+
+			$new_dir = '/uploads' . str_replace( $upload_path['basedir'], '', $new_dir );
+			$current_dir = '/uploads' . str_replace( $upload_path['basedir'], '', $current_dir );
+			
+			//削除対象msg
+			$message = $file_name . ':' . $current_dir . ' => ' . $new_dir;
 
 			$response = array(
 				'msg' => $message,
+				'file_name' => $file_name,
+				'current_dir' => $current_dir,
+				'new_dir' => $new_dir,
 				'debug' => $debug
 			);
 			

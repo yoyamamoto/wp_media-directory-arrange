@@ -24,6 +24,9 @@ class Arrange {
 			'post_slug' 					=> 'The post\'s URL slug',
 			'post_parent_slug' 		=> 'The parent URL slug',
 			'post_type' 					=> '(post|page|attachment)',
+			'post_type_with_comment'		=> '(post|page|attachment|comment)',
+			'comment_label'				=> 'Insert \'comment\' dir label',
+			'comment_id'					=> 'The post\'s comment ID',
 			'year'								=> 'The post\'s year (YYYY)',
 			'month'								=> 'The post\'s month (MM)',
 			'day'									=> 'The post\'s day (DD)',
@@ -36,14 +39,58 @@ class Arrange {
 		$this->setting = Setting::get_instance();
 	}
 
+	/**
+	 * 現在のファイルのファイル名を取得
+	 */
+	public function get_current_file_name( $attachiment_id ){
+		return basename( get_attached_file( $attachiment_id ) );
+	}
+	/**
+	 * 現在のファイルの絶対パス
+	 */
 	public function get_current_file_path( $attachiment_id ){
 		return get_attached_file( $attachiment_id );
 	}
 
+	/**
+	 * 現在のファイルの相対パス
+	 */
+	public function get_current_relative_file_path( $attachiment_id ){
+		$upload_path = $this->get_upload_path( $attachiment_id );
+		return '/uploads' . str_replace( $upload_path['basedir'], '', $this->get_current_file_path( $attachiment_id ) );
+	}
+
+	/**
+	 * 現在のディレクトリの相対パス
+	 */
+	public function get_current_relative_dir_path( $attachiment_id ){
+		$upload_path = $this->get_upload_path( $attachiment_id );
+		return '/uploads' . str_replace( $upload_path['basedir'], '', dirname( $this->get_current_file_path( $attachiment_id ) ) ) . '/';
+	}
+
+	/**
+	 * 移動先の絶対パス
+	 */
 	public function get_new_file_path( $attachiment_id ){
 		$path = $this->get_upload_path( $attachiment_id );
 		$filename = basename( get_attached_file( $attachiment_id ) );
 		return $path['path'] . '/' . $filename;
+	}
+
+	/**
+	 * 移動先の相対パス
+	 */
+	public function get_new_relative_file_path( $attachiment_id ){
+		$upload_path = $this->get_upload_path( $attachiment_id );
+		return '/uploads' . str_replace( $upload_path['basedir'], '', $this->get_new_file_path( $attachiment_id ) );
+	}
+
+	/**
+	 * 移動先ディレクトリの相対パス
+	 */
+	public function get_new_relative_dir_path( $attachiment_id ){
+		$upload_path = $this->get_upload_path( $attachiment_id );
+		return '/uploads' . str_replace( $upload_path['basedir'], '', $upload_path['path'] ) . '/';
 	}
 
 	/**
@@ -76,9 +123,10 @@ class Arrange {
 				$customdir
 			);
 		}
-		while(strpos($customdir, '//') !== false){
+		while( strpos($customdir, '//') !== false ){
 			$customdir = str_replace('//', '/', $customdir); //avoid duplicate slashes.
 		}
+		$customdir = untrailingslashit( $customdir );
 		return apply_filters( 'mda_generate_path', $customdir, $attachiment_id );
 	}
 
@@ -126,6 +174,24 @@ class Arrange {
 	private function get_post_type( $attachment_id ){
 		$post_type = get_post_field( 'post_type', $this->get_post_id( $attachment_id ) );
 		return sanitize_title( $post_type );
+	}
+
+	private function get_post_type_with_comment( $attachment_id ){
+		$comment_id = get_post_meta( $attachment_id, '_wp_attachment_relation_comment_id', true);
+		if( !empty( $comment_id ) ){
+			return $this->get_comment_label();
+		}else {
+			return $this->post_type( $attachment_id );
+		}
+	}
+
+	private function get_comment_label( $attachment_id = '' ){
+		return 'comment';
+	}
+
+	private function get_comment_id( $attachment_id ){
+		$comment_id = get_post_meta( $attachment_id, '_wp_attachment_relation_comment_id', true);
+		return sanitize_title( $comment_id );
 	}
 
 	private function get_year( $attachment_id ){
