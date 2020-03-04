@@ -113,7 +113,36 @@ class Arrange {
 	public function generate_path( $attachiment_id ){
 		$option_data = $this->setting->get_option_data();
 		$customdir = $option_data['mda_permalink'];
+		//$arr_dir = explode('/', ltrim($customdir, '/'));
+		$arr_dir = preg_split( '/\//', ltrim($customdir, '/') );
+		foreach ( $arr_dir as $key => $dir ){
+			foreach( $this->placeholder as $holder => $description ){
+				if( strpos( $dir, '%'.$holder.'%' ) === false ){
+					continue;
+				}
+				$replace = call_user_func(
+					array( $this, 'get_'.$holder ),
+					$attachiment_id
+				);
+				if( $replace === '' ){
+					unset( $arr_dir[$key] );
+					continue;
+				}
+				$arr_dir[$key] = str_replace(
+					'%'.$holder.'%',
+					call_user_func(
+						array( $this, 'get_'.$holder ),
+						$attachiment_id
+					),
+					$arr_dir[$key]
+				);
+				
+			}
+		}
+		$customdir = '/' . join( '/', $arr_dir );
+		/*
 		foreach( $this->placeholder as $holder => $description ){
+			// 改良ポイント
 			$customdir = str_replace(
 				'%'.$holder.'%',
 				call_user_func(
@@ -127,6 +156,9 @@ class Arrange {
 			$customdir = str_replace('//', '/', $customdir); //avoid duplicate slashes.
 		}
 		$customdir = untrailingslashit( $customdir );
+		*/
+		d( $customdir );
+
 		return apply_filters( 'mda_generate_path', $customdir, $attachiment_id );
 	}
 
@@ -178,10 +210,10 @@ class Arrange {
 
 	private function get_post_type_with_comment( $attachment_id ){
 		$comment_id = get_post_meta( $attachment_id, '_wp_attachment_relation_comment_id', true);
-		if( !empty( $comment_id ) ){
+		if( ! empty( $comment_id ) ){
 			return $this->get_comment_label();
 		}else {
-			return $this->post_type( $attachment_id );
+			return $this->get_post_type( $attachment_id );
 		}
 	}
 
@@ -229,7 +261,7 @@ class Arrange {
 	/*
 		if(get_option('uploads_use_yearmonth_folders') && stripos($options['template'], '/%year%/%monthnum%') !== 0){
 			$options['template'] = '/%year%/%monthnum%'.$options['template'];
-		}	
+		}
 	$ancestors = get_post_ancestors( $attachment_id );
 	d( $ancestors );
 	*/
