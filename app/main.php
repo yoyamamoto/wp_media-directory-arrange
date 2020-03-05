@@ -164,19 +164,19 @@ class Media_Directory_Arrange {
 	private function process_template_allmediafile( $ids = '' ){
 		$id_list = explode(',', $ids);
 		?>
-			<form method="post" action="">
-				<?php wp_nonce_field('media-directory-arrange') ?>
-				<noscript><p><em>Javascriptを有効化してください。</em></p></noscript>
-				<p>メディアファイルの保存先を一括整理、移動する</p>
-				<h3>移動先テンプレート</h3>
-				<code>
-					<?php
-						$option_data = $this->setting->get_option_data();
-						echo $option_data['mda_permalink'];
-					?>
-				</code>
+			<noscript><p><em>Javascriptを有効化してください。</em></p></noscript>
+			<p>メディアファイルの保存先を一括整理、移動する</p>
+			<h3>移動先テンプレート</h3>
+			<code>
+				<?php
+					$option_data = $this->setting->get_option_data();
+					echo $option_data['mda_permalink'];
+				?>
+			</code>
+			<p><a href='<?php echo admin_url('options-general.php?page=media-directory-arrange-option'); ?>'>設定ページ</a>から移動先テンプレートを変更できます。</p>
 
-				<h3>選択したファイルのみ</h3>
+			<h3>選択したファイルのみ</h3>
+			<form method="post" action="">
 				<?php if( ! empty( $ids ) ): ?>
 					<p>
 						<input type="submit" class="button-primary hide-if-no-js" name="media-directory-arrange" id="media-directory-arrange" value="選択したメディアファイルを移動する" />
@@ -196,11 +196,40 @@ class Media_Directory_Arrange {
 					</ul>
 				<?php endif; ?>
 				<p><a href='<?php echo admin_url('upload.php'); ?>'>メディアページ</a>から個別に選択してファイルを移動させることができます。</p>
-			
-				<h3>全てファイル</h3>
+				<?php wp_nonce_field('media-directory-arrange') ?>
+				<input type="hidden" name="type" value="select">
+			</form>
+
+			<h3>添付先の投稿タイプから選ぶ</h3>
+			<form method="post" action="">
+				<ul>
+				<?php
+					$post_types = get_post_types(array(
+						'public' => true,
+						'show_ui' => true
+					));
+					unset($post_types['attachment']);
+					foreach( $post_types as $post_type ):
+				?>
+					<li><label for='mda_<?php echo $post_type; ?>'><input type="checkbox" name="<?php echo $post_type; ?>" id='mda_<?php echo $post_type; ?>'><?php echo $post_type; ?></label></li>
+				<?php
+					endforeach;
+				?>
+				</ul>
+				<p>
+					<input type="submit" class="button-primary hide-if-no-js" name="media-directory-arrange" id="media-directory-arrange" value="添付先の投稿タイプから選ぶ" />
+				</p>
+				<?php wp_nonce_field('media-directory-arrange') ?>
+				<input type="hidden" name="type" value="post_type">
+			</form>
+
+			<h3>全てファイル</h3>
+			<form method="post" action="">
 				<p>
 					<input type="submit" class="button-primary hide-if-no-js" name="media-directory-arrange" id="media-directory-arrange" value="全てのメディアファイルを移動する" />
 				</p>
+				<?php wp_nonce_field('media-directory-arrange') ?>
+				<input type="hidden" name="type" value="all">
 			</form>
 		<?php
 	}
@@ -218,12 +247,41 @@ class Media_Directory_Arrange {
 		check_admin_referer( 'media-directory-arrange' );
 
 		// Create the list of image IDs
-		if ( empty( $_REQUEST['ids'] ) ) {
-			// ファイルが見つかりません
-			return;
+		$type = filter_input( INPUT_POST, 'type' );
+		if( $type === 'select' ) {
+			// ファイルが見つかりません & リダイレクトを入れる
+			if( empty( $_REQUEST['ids'] ) ){
+				return;
+			}
+			$images = array_map( 'intval', explode( ',', trim( $_REQUEST['ids'], ',' ) ) );
+
+		}else if( $type === 'post_type' ){
+			/*
+			$attachments = get_posts(array(
+				'post_type' => 'attachment',
+				'posts_per_page' => 2,
+				'post_status' => 'any',
+				'post_parent' => null
+			));
+			d( $attachments );
+			*/
+			$attachments = get_children(array(
+				'post_parent' => null,
+				'post_type'   => 'attachment', 
+				'numberposts' => 10,
+				'post_status' => 'any'
+			), 'ARRAY_A');
+			$images = array_column($attachments, 'ID');
+		}else if( $type === 'all' ){
+			$attachments = get_children(array(
+				'post_parent' => null,
+				'post_type'   => 'attachment', 
+				'numberposts' => -1,
+				'post_status' => 'any'
+			), 'ARRAY_A');
+			$images = array_column($attachments, 'ID');
 		}
 		
-		$images = array_map( 'intval', explode( ',', trim( $_REQUEST['ids'], ',' ) ) );
 		$ids = implode( ',', $images );
 		
 		echo '<p>メディアファイルの保存されているディレクトリ（URL）を移動します。</p>';
@@ -278,6 +336,7 @@ class Media_Directory_Arrange {
 		jQuery(document).ready(function($){
 			var i;
 			var mda_images = [<?php echo $ids; ?>];
+			console.log(mda_images);
 			var mda_total = mda_images.length;
 			var mda_count = 1;
 			var mda_percent = 0;
@@ -289,8 +348,6 @@ class Media_Directory_Arrange {
 			var mda_timeend = 0;
 			var mda_totaltime = 0;
 			var mda_continue = true;
-
-			console.log(mda_timestart);
 
 			// Create the progress bar
 			$("#mda-bar").progressbar();
@@ -320,7 +377,7 @@ class Media_Directory_Arrange {
 					mda_errors = mda_errors + 1;
 					mda_failedlist = mda_failedlist + ',' + id;
 					$("#mda-debug-failurecount").html(mda_errors);
-					$("#mda-debuglist").append('<li>' + data.file_name +  ' (ID : ' + id + ').&nbsp;&nbsp;&nbsp;<code>' + data.current_dir + '</code> =&gt; <code>' + data.new_dir + "</code></li>");
+					$("#mda-debuglist").append('<li>' + data.file_name +  ' (ID : ' + id + ').&nbsp;&nbsp;&nbsp; ' + data.msg + '<code>' + data.current_dir + '</code> =&gt; <code>' + data.new_dir + "</code></li>");
 				}
 			}
 
@@ -339,7 +396,7 @@ class Media_Directory_Arrange {
 			}
 
 			function MdaAjaxCallback( id, response ){
-				console.log( response.data.debug );
+				
 				MdaUpdateStatus( id, response.success, response.data );
 				if ( mda_images.length && mda_continue ){
 					MdaMoveMediaFile( mda_images.shift() );
@@ -360,9 +417,11 @@ class Media_Directory_Arrange {
 						nonce: '<?php echo wp_create_nonce( 'media-directory-arrange_js' ); ?>'
 					},
 					success: function( response ) {
+						console.log(response);
 						MdaAjaxCallback( id, response );
 					},
 					error: function( response ) {
+						console.log(response);
 						MdaAjaxCallback( id, response );
 					}
 				});
@@ -407,6 +466,7 @@ class Media_Directory_Arrange {
 			}
 
 			$current_file_path = $arrange->get_current_file_path( $image->ID );
+			$current_file_name = basename( $current_file_path );
 
 			// メディアファイルではありません
 			if ( false === $current_file_path || strlen( $current_file_path ) == 0 ) {
@@ -422,48 +482,52 @@ class Media_Directory_Arrange {
 					)
 				);
 			}
-			
+
 			/*
 			 * 既存メディアファイルの移動関連
 			 */
 			$new_file_path = $arrange->get_new_file_path( $image->ID );
 			$upload_path = $arrange->get_upload_path( $image->ID );
+
 			// 移動先ディレクトリ
 			$new_dir = $upload_path['path'];
 			// サムネイルが保存されている旧ディレクトリを取得
 			$current_dir = dirname( $current_file_path );
-			
+			$new_relative_dir = '/uploads' . str_replace( $upload_path['basedir'], '', $new_dir );
+			$current_relative_dir = '/uploads' . str_replace( $upload_path['basedir'], '', $current_dir );
+
+			// 移動先が同一です。
 			if( $current_file_path === $new_file_path ){
-				throw new Exception(sprintf( 'Failed: %d doesn\'t move. Current file path is same new file path.', $id ) );
+				throw new Exception( sprintf( 'ID:%d file path is the same as current path.', $id ) );
 			}
 
 			// ディレクトリを確認・作成
 			if( ! is_dir( $new_dir ) ){
 				if( ! mkdir( $new_dir, 0755, true ) ){
-					throw new Exception(sprintf( 'Failed: %d doesn\'t make new directory.', $id ) );
+					throw new Exception( sprintf( 'Failed: %d doesn\'t make new directory.', $id ) );
 				}
 			}
 			
 			// ディレクトリの書き込み確認
 			if( ! is_writable( $new_dir ) ) {
-				throw new Exception(sprintf( 'Failed: %s is not writable.', $new_dir ) );
+				throw new Exception( sprintf( 'Failed: %s is not writable.', $new_dir ) );
 			}
 			
 			// 移動先にファイルが存在している。
 			if( file_exists( $new_file_path ) ){
-				throw new Exception(sprintf( 'Failed: %d. Already file exist.', $id ) );
+				throw new Exception( sprintf( 'Failed: %d. Already file exist.', $id ) );
 			}
 
 			// ファイルの移動
 			/*
 			if( rename( $current_file_path, $new_file_path ) === false ){
-				throw new Exception(sprintf( 'Failed: %d dosen\'t rename.', $id ) );
+				throw new Exception( sprintf( 'Failed: %d dosen\'t rename.', $id ) );
 			}
 
 			// メタ情報を更新
 			/*
 			if( update_attached_file( $image->ID, $new_path ) === false ){
-				throw new Exception(sprintf( 'Failed: %d. update_attached_file is failed. メタ情報の更新に失敗しました。', $id ) );
+				throw new Exception( sprintf( 'Failed: %d. update_attached_file is failed. メタ情報の更新に失敗しました。', $id ) );
 			}
 			*/
 
@@ -473,7 +537,7 @@ class Media_Directory_Arrange {
 			// サムネイルのファイル名を取得
 			$thumb_files = $this->get_metadata_thumbs_file( $image->ID );
 			$directory_files = $this->get_thumbs_file_list( $current_file_path );
-						
+
 			// 全てのサムネイルを新しいディレクトリへ移動
 			foreach( $thumb_files as $thumb ){
 				$new_thumb_path = $new_dir . '/' . $thumb;
@@ -492,36 +556,30 @@ class Media_Directory_Arrange {
 				*/
 			}
 			
-			
-			// 旧ディレクトリが空か確認して削除するコードを実装する
-
-			$debug = basename( $current_file_path );
-
-			$file_name = basename( $current_file_path );
-
-			$new_dir = '/uploads' . str_replace( $upload_path['basedir'], '', $new_dir );
-			$current_dir = '/uploads' . str_replace( $upload_path['basedir'], '', $current_dir );
-			
 			//削除対象msg
-			$message = $file_name . ':' . $current_dir . ' => ' . $new_dir;
+			$message = $current_file_name . ':' . $current_relative_dir . ' => ' . $new_relative_dir;
 
 			$response = array(
-				'msg' => $message,
-				'file_name' => $file_name,
-				'current_dir' => $current_dir,
-				'new_dir' => $new_dir,
-				'debug' => $debug
+				'msg' => '',
+				'file_name' => $current_file_name,
+				'current_dir' => $current_relative_dir,
+				'new_dir' => $new_relative_dir
 			);
-			
 			header( 'Content-Type: application/json' );
 			wp_send_json_success( $response );
-			
 		}
-		catch (PDOException $e){
+		catch (Exception $e){
+			$response = array(
+				'msg' => $e->getMessage() . "\n",
+				'file_name' => $current_file_name,
+				'current_dir' => $current_relative_dir,
+				'new_dir' => $new_relative_dir
+			);
 			header('Content-Type: application/json');
-			wp_send_json_error( array( 'msg' => 'ERROR: ' . $e->getMessage() . "\n" ) );
+			wp_send_json_error( $response );
 		}
 		
+
 		/**
 		 * Update META POST
 		 * Thanks (@norecipes)

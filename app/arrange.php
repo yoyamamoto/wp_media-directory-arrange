@@ -113,7 +113,7 @@ class Arrange {
 	public function generate_path( $attachiment_id ){
 		$option_data = $this->setting->get_option_data();
 		$customdir = $option_data['mda_permalink'];
-		//$arr_dir = explode('/', ltrim($customdir, '/'));
+		// explode
 		$arr_dir = preg_split( '/\//', ltrim($customdir, '/') );
 		foreach ( $arr_dir as $key => $dir ){
 			foreach( $this->placeholder as $holder => $description ){
@@ -136,29 +136,10 @@ class Arrange {
 					),
 					$arr_dir[$key]
 				);
-				
 			}
 		}
+		// implode
 		$customdir = '/' . join( '/', $arr_dir );
-		/*
-		foreach( $this->placeholder as $holder => $description ){
-			// 改良ポイント
-			$customdir = str_replace(
-				'%'.$holder.'%',
-				call_user_func(
-					array( $this, 'get_'.$holder ),
-					$attachiment_id
-				),
-				$customdir
-			);
-		}
-		while( strpos($customdir, '//') !== false ){
-			$customdir = str_replace('//', '/', $customdir); //avoid duplicate slashes.
-		}
-		$customdir = untrailingslashit( $customdir );
-		*/
-		d( $customdir );
-
 		return apply_filters( 'mda_generate_path', $customdir, $attachiment_id );
 	}
 
@@ -257,15 +238,6 @@ class Arrange {
 		$post_tags = get_the_terms( $this->get_post_id( $attachment_id ), 'post_tag' );
 		return sanitize_title( $post_tags[0]->taxonomy . '_' . $post_tags[0]->slug );
 	}
-
-	/*
-		if(get_option('uploads_use_yearmonth_folders') && stripos($options['template'], '/%year%/%monthnum%') !== 0){
-			$options['template'] = '/%year%/%monthnum%'.$options['template'];
-		}
-	$ancestors = get_post_ancestors( $attachment_id );
-	d( $ancestors );
-	*/
-
 
 	/**
 	 * 
