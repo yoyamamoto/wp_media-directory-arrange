@@ -221,7 +221,7 @@ class Media_Directory_Arrange {
 					unset($post_types['attachment']);
 					foreach( $post_types as $post_type ):
 				?>
-					<li><label for='mda_<?php echo $post_type; ?>'><input type="checkbox" name="post_type" value="<?php echo $post_type; ?>" id='mda_<?php echo $post_type; ?>'><?php echo $post_type; ?></label></li>
+					<li><label for='mda_<?php echo $post_type; ?>'><input type="checkbox" name="mda_post_type[]" value='<?php echo $post_type; ?>' id='mda_<?php echo $post_type; ?>'><?php echo $post_type; ?></label></li>
 				<?php
 					endforeach;
 				?>
@@ -285,16 +285,14 @@ class Media_Directory_Arrange {
 				'post_parent',
 				'ID'
 			);
+			$post_types = filter_input( INPUT_POST, 'mda_post_type' , FILTER_DEFAULT, FILTER_REQUIRE_ARRAY );
 			$images = array();
-			foreach( $attachments as $post_parent => $id ){
-				if( get_post_type( $post_parent ) === '' ){
+			foreach( $attachments as $id => $post_parent ){
+				$parent_post_type = get_post_type( $post_parent );
+				if( in_array( $parent_post_type, $post_types ) ){
 					$images[] = $id;
 				}
 			}
-			$select_type = filter_input_array( INPUT_POST, 'post_type' );
-			d($select_type);
-			d($images);
-			die();
 		}else if( $type === 'all' ){
 			$attachments = get_children(array(
 				'post_parent' => null,
