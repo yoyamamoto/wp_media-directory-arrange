@@ -38,7 +38,7 @@ class Arrange {
 		// セッティング
 		$this->setting = Setting::get_instance();
 	}
-
+	
 	/**
 	 * 現在のファイルのファイル名を取得
 	 */

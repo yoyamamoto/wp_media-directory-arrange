@@ -113,7 +113,6 @@ class Media_Directory_Arrange {
 		return $redirect_to;
 	}
 
-
 	/**
 	 * 独自ページの登録
 	 * 
@@ -190,7 +189,18 @@ class Media_Directory_Arrange {
 							<li>
 								<?php echo $arrange->get_current_file_name( $attachment_id ); ?>
 								(&nbsp;<a href="<?php echo admin_url( 'post.php?post=' . $attachment_id . '&action=edit' );?>" target="_blank">ID:<?php echo $attachment_id; ?></a>&nbsp;)
-								<code><?php echo $arrange->get_current_relative_dir_path( $attachment_id ); ?></code> =&gt; <code><?php echo $arrange->get_new_relative_dir_path( $attachment_id ); ?></code>
+								
+								<?php
+									$current = $arrange->get_current_relative_dir_path( $attachment_id );
+									$new = $arrange->get_new_relative_dir_path( $attachment_id );
+									if( $current !== $new ):
+								?>
+									<code><?php echo $current; ?></code>
+									=&gt;
+									<code><?php echo $new; ?></code>
+								<?php else: ?>
+									<code><?php echo $current; ?></code> 移動先が同一です。
+								<?php endif; ?>
 							</li>
 						<?php endforeach; ?>
 					</ul>
@@ -199,7 +209,7 @@ class Media_Directory_Arrange {
 				<?php wp_nonce_field('media-directory-arrange') ?>
 				<input type="hidden" name="type" value="select">
 			</form>
-
+			
 			<h3>添付先の投稿タイプから選ぶ</h3>
 			<form method="post" action="">
 				<ul>
@@ -211,7 +221,7 @@ class Media_Directory_Arrange {
 					unset($post_types['attachment']);
 					foreach( $post_types as $post_type ):
 				?>
-					<li><label for='mda_<?php echo $post_type; ?>'><input type="checkbox" name="<?php echo $post_type; ?>" id='mda_<?php echo $post_type; ?>'><?php echo $post_type; ?></label></li>
+					<li><label for='mda_<?php echo $post_type; ?>'><input type="checkbox" name="post_type" value="<?php echo $post_type; ?>" id='mda_<?php echo $post_type; ?>'><?php echo $post_type; ?></label></li>
 				<?php
 					endforeach;
 				?>
@@ -256,7 +266,7 @@ class Media_Directory_Arrange {
 			$images = array_map( 'intval', explode( ',', trim( $_REQUEST['ids'], ',' ) ) );
 
 		}else if( $type === 'post_type' ){
-			/*
+			/* same code
 			$attachments = get_posts(array(
 				'post_type' => 'attachment',
 				'posts_per_page' => 2,
@@ -265,13 +275,26 @@ class Media_Directory_Arrange {
 			));
 			d( $attachments );
 			*/
-			$attachments = get_children(array(
-				'post_parent' => null,
-				'post_type'   => 'attachment', 
-				'numberposts' => 10,
-				'post_status' => 'any'
-			), 'ARRAY_A');
-			$images = array_column($attachments, 'ID');
+			$attachments = array_column(
+				get_children(array(
+					'post_parent' => null,
+					'post_type'   => 'attachment', 
+					'numberposts' => 50,
+					'post_status' => 'any'
+				), 'ARRAY_A'),
+				'post_parent',
+				'ID'
+			);
+			$images = array();
+			foreach( $attachments as $post_parent => $id ){
+				if( get_post_type( $post_parent ) === '' ){
+					$images[] = $id;
+				}
+			}
+			$select_type = filter_input_array( INPUT_POST, 'post_type' );
+			d($select_type);
+			d($images);
+			die();
 		}else if( $type === 'all' ){
 			$attachments = get_children(array(
 				'post_parent' => null,
@@ -292,7 +315,7 @@ class Media_Directory_Arrange {
 						: '';
 
 		$text_failures = sprintf(
-			'完了しました。 %1$s個のメディアファイルが移動され、 %2$s秒かかりました。%3$s個のメディアファイルの移動に失敗しました。<a href="%4$s">こちらのリンクより再度実行してください。</a>. %5$s',
+			'完了しました。 %1$s個のメディアファイルが移動され、 %2$s秒かかりました。%3$s個のメディアファイルの移動に失敗しました。<a href="%4$s">こちらのリンクより再度実行してください。</a> %5$s',
 			"' + mda_successes + '",
 			"' + mda_totaltime + '",
 			"' + mda_errors + '",
@@ -336,7 +359,6 @@ class Media_Directory_Arrange {
 		jQuery(document).ready(function($){
 			var i;
 			var mda_images = [<?php echo $ids; ?>];
-			console.log(mda_images);
 			var mda_total = mda_images.length;
 			var mda_count = 1;
 			var mda_percent = 0;
@@ -368,10 +390,17 @@ class Media_Directory_Arrange {
 				$("#mda-bar-percent").html(Math.round((mda_count / mda_total) * 1000) / 10 + "%");
 				mda_count = mda_count + 1;
 
+				console.log(data.debug);
+				console.log(data.debug02);
+
 				if ( success ) {
 					mda_successes = mda_successes + 1;
 					$("#mda-debug-successcount").html(mda_successes);
-					$("#mda-debuglist").append('<li>' + data.file_name +  ' (ID : ' + id + ').&nbsp;&nbsp;&nbsp;<code>' + data.current_dir + '</code> =&gt; <code>' + data.new_dir + "</code></li>");
+					if( data.current_dir === data.new_dir ){
+						$("#mda-debuglist").append('<li>' + data.file_name +  ' (ID : ' + id + ').&nbsp;&nbsp;&nbsp; ' + data.msg + ' <code>' + data.new_dir + "</code></li>");
+					}else{
+						$("#mda-debuglist").append('<li>' + data.file_name +  ' (ID : ' + id + ').&nbsp;&nbsp;&nbsp;<code>' + data.current_dir + '</code> =&gt; <code>' + data.new_dir + "</code></li>");
+					}
 				}
 				else {
 					mda_errors = mda_errors + 1;
@@ -417,11 +446,9 @@ class Media_Directory_Arrange {
 						nonce: '<?php echo wp_create_nonce( 'media-directory-arrange_js' ); ?>'
 					},
 					success: function( response ) {
-						console.log(response);
 						MdaAjaxCallback( id, response );
 					},
 					error: function( response ) {
-						console.log(response);
 						MdaAjaxCallback( id, response );
 					}
 				});
@@ -488,17 +515,26 @@ class Media_Directory_Arrange {
 			 */
 			$new_file_path = $arrange->get_new_file_path( $image->ID );
 			$upload_path = $arrange->get_upload_path( $image->ID );
-
+			
 			// 移動先ディレクトリ
 			$new_dir = $upload_path['path'];
 			// サムネイルが保存されている旧ディレクトリを取得
 			$current_dir = dirname( $current_file_path );
 			$new_relative_dir = '/uploads' . str_replace( $upload_path['basedir'], '', $new_dir );
 			$current_relative_dir = '/uploads' . str_replace( $upload_path['basedir'], '', $current_dir );
-
+			
 			// 移動先が同一です。
 			if( $current_file_path === $new_file_path ){
-				throw new Exception( sprintf( 'ID:%d file path is the same as current path.', $id ) );
+				$response = array(
+					'msg' => '移動先が同一です。',
+					'file_name' => $current_file_name,
+					'current_dir' => $current_relative_dir,
+					'new_dir' => $new_relative_dir,
+					'debug' => '',
+					'debug02' => ''
+				);
+				header( 'Content-Type: application/json' );
+				wp_send_json_success( $response );
 			}
 
 			// ディレクトリを確認・作成
@@ -518,15 +554,15 @@ class Media_Directory_Arrange {
 				throw new Exception( sprintf( 'Failed: %d. Already file exist.', $id ) );
 			}
 
-			// ファイルの移動
 			/*
+			// ファイルの移動
 			if( rename( $current_file_path, $new_file_path ) === false ){
 				throw new Exception( sprintf( 'Failed: %d dosen\'t rename.', $id ) );
 			}
 
 			// メタ情報を更新
-			/*
 			if( update_attached_file( $image->ID, $new_path ) === false ){
+				rename( $new_file_path, $current_file_path );
 				throw new Exception( sprintf( 'Failed: %d. update_attached_file is failed. メタ情報の更新に失敗しました。', $id ) );
 			}
 			*/
@@ -537,33 +573,34 @@ class Media_Directory_Arrange {
 			// サムネイルのファイル名を取得
 			$thumb_files = $this->get_metadata_thumbs_file( $image->ID );
 			$directory_files = $this->get_thumbs_file_list( $current_file_path );
-
+			$msg = '';
 			// 全てのサムネイルを新しいディレクトリへ移動
 			foreach( $thumb_files as $thumb ){
 				$new_thumb_path = $new_dir . '/' . $thumb;
 				$current_thumb_path = realpath( $current_dir . '/' . $thumb );
-
 				// 既存ファイルが存在しません
 				if( $current_thumb_path === false ){
 					continue;
 				}
-
-				// ファイルの移動
 				/*
+				// ファイルの移動
 				if( rename( $current_thumb_path, $new_thumb_path ) === false ){
-					throw new Exception(sprintf( 'Failed: %d dosen\'t rename.', $id ) );
+					$msg .= 'Failed:' . $id . '(' . $current_thumb_path . ')\'s thumbs dosen\'t rename. ';
 				}
 				*/
 			}
-			
-			//削除対象msg
-			$message = $current_file_name . ':' . $current_relative_dir . ' => ' . $new_relative_dir;
+
+			if( !empty( $msg ) ){
+				throw new Exception( $msg );
+			}
 
 			$response = array(
 				'msg' => '',
 				'file_name' => $current_file_name,
 				'current_dir' => $current_relative_dir,
-				'new_dir' => $new_relative_dir
+				'new_dir' => $new_relative_dir,
+				'debug' => $directory_files,
+				'debug02' => $thumb_files
 			);
 			header( 'Content-Type: application/json' );
 			wp_send_json_success( $response );
@@ -573,20 +610,13 @@ class Media_Directory_Arrange {
 				'msg' => $e->getMessage() . "\n",
 				'file_name' => $current_file_name,
 				'current_dir' => $current_relative_dir,
-				'new_dir' => $new_relative_dir
+				'new_dir' => $new_relative_dir,
+				'debug' => '',
+				'debug02' => ''
 			);
 			header('Content-Type: application/json');
 			wp_send_json_error( $response );
 		}
-		
-
-		/**
-		 * Update META POST
-		 * Thanks (@norecipes)
-		 *
-		 * @since 2.0.2
-		 */
-		//update_attached_file( $image->ID, $current_file_path );
 	}
 	
 	public function get_metadata_thumbs_file( $attahiment_id ){
